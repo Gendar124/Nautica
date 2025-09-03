@@ -75,8 +75,8 @@ export default {
     try {
       const url = new URL(request.url);
       const upgradeHeader = request.headers.get("Upgrade");
-      const CHECK_API_BASE = "api.ndeso.xyz"; // Get base URL from secrets
-      const CHECK_API = "https://api.ndeso.xyz/check?ip=${ip}:${port}";
+      const CHECK_API_BASE = "id1.foolvpn.me"; // Get base URL from secrets
+      const CHECK_API = "https://id1.foolvpn.me/check?ip=${ip}:${port}";
       
       // Handle IP check
       if (url.pathname === "/check") {
