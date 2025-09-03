@@ -76,7 +76,7 @@ export default {
       const url = new URL(request.url);
       const upgradeHeader = request.headers.get("Upgrade");
       const CHECK_API_BASE = "id1.foolvpn.me"; // Get base URL from secrets
-      const CHECK_API = "https://id1.foolvpn.me/check?ip=${ip}:${port}";
+      const CHECK_API = "https://id1.foolvpn.me/api/v1/check?ip=${ip}:${port}";
       
       // Handle IP check
       if (url.pathname === "/check") {
