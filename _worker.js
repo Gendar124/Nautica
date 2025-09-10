@@ -1,7 +1,7 @@
 // @ts-ignore
 import { connect } from 'cloudflare:sockets';
 
-let rpoyxPI = "";
+let rpoyxPI = "36.95.152.58:12137";
 
 export default {
   async fetch(request, env, ctx) {
