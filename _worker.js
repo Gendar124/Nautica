@@ -1,35 +1,32 @@
 import { connect } from "cloudflare:sockets";
 
 // Variables
-let rootDomain = "";
-let serviceName = "";
-let APP_DOMAIN = "";
-
-const apiKey = ""; // Ganti dengan Global API key kalian (https://dash.cloudflare.com/profile/api-tokens)
-const apiEmail = ""; // Ganti dengan email yang kalian gunakan
-const accountID = ""; // Ganti dengan Account ID kalian (https://dash.cloudflare.com -> Klik domain yang kalian gunakan)
-const zoneID = ""; // Ganti dengan Zone ID kalian (https://dash.cloudflare.com -> Klik domain yang kalian gunakan)
+const rootDomain = "pannely.workers.dev";
+const serviceName = "jambu";
+const apiKey = "7e2f6633ebeb862e50d9238a4";
+const apiEmail = "paoan@gmail.com";
+const accountID = "cc54feaa44bfa6bbb30f";
+const zoneID = "825bc64f18bd3812096aec";
 let isApiReady = false;
 let prxIP = "";
 let cachedPrxList = [];
 
 // Constant
 const horse = "dHJvamFu";
-const flash = "dm1lc3M=";
+const flash = "dmxlc3M=";
 const v2 = "djJyYXk=";
 const neko = "Y2xhc2g=";
 
+const APP_DOMAIN = `${serviceName}.${rootDomain}`;
 const PORTS = [443, 80];
 const PROTOCOLS = [atob(horse), atob(flash), "ss"];
-const SUB_PAGE_URL = "https://foolvpn.me/nautica";
-const KV_PRX_URL = "https://raw.githubusercontent.com/FoolVPN-ID/Nautica/refs/heads/main/kvProxyList.json";
-const PRX_BANK_URL = "https://raw.githubusercontent.com/FoolVPN-ID/Nautica/refs/heads/main/proxyList.txt";
+const KV_PRX_URL = "https://raw.githubusercontent.com/jaka2m/Nautica/refs/heads/main/kvProxyList.json";
+const PRX_BANK_URL = "https://raw.githubusercontent.com/jaka2m/botak/refs/heads/main/cek/proxyList.txt";
 const DNS_SERVER_ADDRESS = "8.8.8.8";
 const DNS_SERVER_PORT = 53;
 const PRX_HEALTH_CHECK_API = "https://id1.foolvpn.me/api/v1/check";
 const CONVERTER_URL = "https://api.foolvpn.me/convert";
-const BAD_WORDS_LIST =
-  "https://gist.githubusercontent.com/adierebel/a69396d79b787b84d89b45002cb37cd6/raw/6df5f8728b18699496ad588b3953931078ab9cf1/kata-kasar.txt";
+const BAD_WORDS_LIST = "https://gist.githubusercontent.com/adierebel/a69396d79b787b84d89b45002cb37cd6/raw/6df5f8728b18699496ad588b3953931078ab9cf1/kata-kasar.txt";
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 const CORS_HEADER_OPTIONS = {
@@ -37,6 +34,8 @@ const CORS_HEADER_OPTIONS = {
   "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
+
+const PROXY_PER_PAGE = 5;
 
 async function getKVPrxList(kvPrxUrl = KV_PRX_URL) {
   if (!kvPrxUrl) {
@@ -52,13 +51,6 @@ async function getKVPrxList(kvPrxUrl = KV_PRX_URL) {
 }
 
 async function getPrxList(prxBankUrl = PRX_BANK_URL) {
-  /**
-   * Format:
-   *
-   * <IP>,<Port>,<Country ID>,<ORG>
-   * Contoh:
-   * 1.1.1.1,443,SG,Cloudflare Inc.
-   */
   if (!prxBankUrl) {
     throw new Error("No URL Provided!");
   }
@@ -107,27 +99,234 @@ async function reverseWeb(request, target, targetPath) {
   return newResponse;
 }
 
+function generatePagination(totalItems, itemsPerPage, currentPage, request) {
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const urlBase = '/sub';
+  
+  let paginationHtml = '';
+  const maxPagesToShow = 5;
+
+  let startPage = Math.max(0, currentPage - Math.floor(maxPagesToShow / 2));
+  let endPage = Math.min(totalPages, startPage + maxPagesToShow);
+  
+  if (endPage - startPage < maxPagesToShow) {
+    startPage = Math.max(0, endPage - maxPagesToShow);
+  }
+
+  // Tombol "Prev"
+  if (currentPage > 0) {
+    const prevUrl = new URL(request.url);
+    prevUrl.searchParams.set('page', currentPage - 1);
+    paginationHtml += `<a href="${prevUrl.pathname}${prevUrl.search}">Prev</a>`;
+  }
+  
+  // Tombol Halaman
+  for (let i = startPage; i < endPage; i++) {
+    const pageNumber = i + 1;
+    const activeClass = i === currentPage ? 'active' : '';
+    const pageUrl = new URL(request.url);
+    pageUrl.searchParams.set('page', i);
+    paginationHtml += `<a href="${pageUrl.pathname}${pageUrl.search}" class="${activeClass}">${pageNumber}</a>`;
+  }
+
+  // Tombol "Next"
+  if (currentPage < totalPages - 1) {
+    const nextUrl = new URL(request.url);
+    nextUrl.searchParams.set('page', currentPage + 1);
+    paginationHtml += `<a href="${nextUrl.pathname}${nextUrl.search}">Next</a>`;
+  }
+
+  return paginationHtml;
+}
+
+
+function getAllConfig(request, hostName, proxyList, page = 0) {
+  const totalProxies = proxyList.length;
+  const startIndex = page * PROXY_PER_PAGE;
+  const endIndex = Math.min(startIndex + PROXY_PER_PAGE, totalProxies);
+  const paginatedProxyList = proxyList.slice(startIndex, endIndex);
+
+  const fillerDomain = APP_DOMAIN;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Konfigurasi Proxy Nautica</title>
+      <style>
+        body { font-family: 'Poppins', sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 20px; }
+        .config-list { display: flex; flex-direction: column; gap: 15px; }
+        .config-item { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 15px; display: flex; flex-direction: column; position: relative; }
+        .config-item h3 { margin: 0 0 10px 0; font-size: 16px; font-weight: 600; color: #555; }
+        .config-url { font-size: 14px; color: #007bff; word-break: break-all; margin-bottom: 10px; }
+        .copy-btn { 
+          background-color: #28a745; 
+          color: white; 
+          border: none; 
+          padding: 8px 12px; 
+          border-radius: 4px; 
+          cursor: pointer; 
+          transition: background-color 0.3s ease;
+          align-self: flex-start;
+        }
+        .copy-btn:hover { background-color: #218838; }
+        .copy-btn:active { background-color: #1e7e34; }
+        .pagination { display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 8px; }
+        .pagination a, .pagination span { padding: 8px 12px; text-decoration: none; color: #007bff; border: 1px solid #007bff; border-radius: 4px; transition: all 0.2s; }
+        .pagination a:hover { background-color: #e9ecef; }
+        .pagination .active { background-color: #007bff; color: white; border-color: #007bff; }
+        .info { text-align: center; margin-top: 20px; color: #666; font-size: 14px; }
+      </style>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Daftar Konfigurasi Proxy</h1>
+          <p>Pilih dan salin konfigurasi yang Anda butuhkan.</p>
+        </div>
+        <div class="config-list">
+          ${paginatedProxyList.map((prx, index) => {
+            const baseId = startIndex + index;
+            const uuid = crypto.randomUUID();
+            
+            // Konfigurasi VLESS, Trojan, SS untuk port 443 (TLS)
+            const vlessUrlTls = new URL(`${atob(flash)}://${fillerDomain}`);
+            vlessUrlTls.searchParams.set("encryption", "none");
+            vlessUrlTls.searchParams.set("type", "ws");
+            vlessUrlTls.searchParams.set("host", APP_DOMAIN);
+            vlessUrlTls.username = uuid;
+            vlessUrlTls.port = "443";
+            vlessUrlTls.searchParams.set("security", "tls");
+            vlessUrlTls.searchParams.set("sni", APP_DOMAIN);
+            vlessUrlTls.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+            vlessUrlTls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} VLESS/WS/TLS [${serviceName}]`;
+
+            const trojanUrlTls = new URL(`${atob(horse)}://${fillerDomain}`);
+            trojanUrlTls.searchParams.set("encryption", "none");
+            trojanUrlTls.searchParams.set("type", "ws");
+            trojanUrlTls.searchParams.set("host", APP_DOMAIN);
+            trojanUrlTls.username = uuid;
+            trojanUrlTls.port = "443";
+            trojanUrlTls.searchParams.set("security", "tls");
+            trojanUrlTls.searchParams.set("sni", APP_DOMAIN);
+            trojanUrlTls.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+            trojanUrlTls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} Trojan/WS/TLS [${serviceName}]`;
+
+            const ssUrlTls = new URL(`ss://${fillerDomain}`);
+            ssUrlTls.username = btoa(`none:${uuid}`);
+            ssUrlTls.searchParams.set("plugin", `${atob(v2)}-plugin;tls;mux=0;mode=websocket;path=/${prx.prxIP}-${prx.prxPort};host=${APP_DOMAIN}`);
+            ssUrlTls.port = "443";
+            ssUrlTls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} Shadowsocks/WS/TLS [${serviceName}]`;
+            
+            // Konfigurasi VLESS, Trojan, SS untuk port 80 (NTLS)
+            const vlessUrlNtls = new URL(`${atob(flash)}://${fillerDomain}`);
+            vlessUrlNtls.searchParams.set("encryption", "none");
+            vlessUrlNtls.searchParams.set("type", "ws");
+            vlessUrlNtls.searchParams.set("host", APP_DOMAIN);
+            vlessUrlNtls.username = uuid;
+            vlessUrlNtls.port = "80";
+            vlessUrlNtls.searchParams.set("security", "none");
+            vlessUrlNtls.searchParams.set("sni", ""); // SNI dikosongkan untuk NTLS
+            vlessUrlNtls.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+            vlessUrlNtls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} VLESS/WS/NTLS [${serviceName}]`;
+
+            const trojanUrlNtls = new URL(`${atob(horse)}://${fillerDomain}`);
+            trojanUrlNtls.searchParams.set("encryption", "none");
+            trojanUrlNtls.searchParams.set("type", "ws");
+            trojanUrlNtls.searchParams.set("host", APP_DOMAIN);
+            trojanUrlNtls.username = uuid;
+            trojanUrlNtls.port = "80";
+            trojanUrlNtls.searchParams.set("security", "none");
+            trojanUrlNtls.searchParams.set("sni", "");
+            trojanUrlNtls.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+            trojanUrlNtls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} Trojan/WS/NTLS [${serviceName}]`;
+
+            const ssUrlNtls = new URL(`ss://${fillerDomain}`);
+            ssUrlNtls.username = btoa(`none:${uuid}`);
+            ssUrlNtls.searchParams.set("plugin", `${atob(v2)}-plugin;mux=0;mode=websocket;path=/${prx.prxIP}-${prx.prxPort};host=${APP_DOMAIN}`);
+            ssUrlNtls.port = "80";
+            ssUrlNtls.hash = `${baseId + 1} ${getFlagEmoji(prx.country)} ${prx.org} Shadowsocks/WS/NTLS [${serviceName}]`;
+
+            return `
+              <div class="config-item">
+                <h3>${getFlagEmoji(prx.country)} ${prx.org}</h3>
+                <div class="config-details">
+                  <p><strong>VLESS (TLS):</strong></p>
+                  <div class="config-url" id="vless-tls-${baseId}">${vlessUrlTls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('vless-tls-${baseId}')">Copy VLESS TLS</button>
+
+                  <p><strong>VLESS (NTLS):</strong></p>
+                  <div class="config-url" id="vless-ntls-${baseId}">${vlessUrlNtls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('vless-ntls-${baseId}')">Copy VLESS NTLS</button>
+
+                  <p><strong>Trojan (TLS):</strong></p>
+                  <div class="config-url" id="trojan-tls-${baseId}">${trojanUrlTls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('trojan-tls-${baseId}')">Copy Trojan TLS</button>
+
+                  <p><strong>Trojan (NTLS):</strong></p>
+                  <div class="config-url" id="trojan-ntls-${baseId}">${trojanUrlNtls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('trojan-ntls-${baseId}')">Copy Trojan NTLS</button>
+
+                  <p><strong>Shadowsocks (TLS):</strong></p>
+                  <div class="config-url" id="ss-tls-${baseId}">${ssUrlTls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('ss-tls-${baseId}')">Copy SS TLS</button>
+
+                  <p><strong>Shadowsocks (NTLS):</strong></p>
+                  <div class="config-url" id="ss-ntls-${baseId}">${ssUrlNtls.toString()}</div>
+                  <button class="copy-btn" onclick="copyConfig('ss-ntls-${baseId}')">Copy SS NTLS</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="pagination">
+          ${generatePagination(totalProxies, PROXY_PER_PAGE, page, request)}
+        </div>
+        <div class="info">
+          Menampilkan ${paginatedProxyList.length} dari ${totalProxies} konfigurasi.
+        </div>
+      </div>
+      <script>
+        function copyConfig(id) {
+          const configElement = document.getElementById(id);
+          const textToCopy = configElement.innerText;
+          navigator.clipboard.writeText(textToCopy).then(() => {
+            alert('Konfigurasi berhasil disalin!');
+          }).catch(err => {
+            console.error('Gagal menyalin: ', err);
+            alert('Gagal menyalin konfigurasi.');
+          });
+        }
+      </script>
+    </body>
+    </html>
+  `;
+    
+  return new Response(htmlContent, {
+    status: 200,
+    headers: { "Content-Type": "text/html;charset=utf-8" },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      APP_DOMAIN = url.hostname;
-      serviceName = APP_DOMAIN.split(".")[0];
-      rootDomain = APP_DOMAIN.replace(`${serviceName}.`, "");
-
       const upgradeHeader = request.headers.get("Upgrade");
 
-      // Gateway check
       if (apiKey && apiEmail && accountID && zoneID) {
         isApiReady = true;
       }
 
-      // Handle prx client
       if (upgradeHeader === "websocket") {
         const prxMatch = url.pathname.match(/^\/(.+[:=-]\d+)$/);
 
         if (url.pathname.length == 3 || url.pathname.match(",")) {
-          // Contoh: /ID, /SG, dll
           const prxKeys = url.pathname.replace("/", "").toUpperCase().split(",");
           const prxKey = prxKeys[Math.floor(Math.random() * prxKeys.length)];
           const kvPrx = await getKVPrxList();
@@ -142,10 +341,32 @@ export default {
       }
 
       if (url.pathname.startsWith("/sub")) {
-        return Response.redirect(SUB_PAGE_URL + `?host=${APP_DOMAIN}`, 301);
+        const page = parseInt(url.searchParams.get("page") || "0");
+        const hostname = request.headers.get("Host");
+
+        const countrySelectRaw = url.searchParams.get("cc")?.split(",");
+        let countrySelect = [];
+
+        if (countrySelectRaw) {
+          countrySelect = countrySelectRaw.map(cc => {
+            const normalizedCc = cc.toLowerCase().trim();
+            const countryCodeMap = {};
+            return countryCodeMap[normalizedCc] || cc.toUpperCase().trim();
+          });
+        }
+        
+        const prxBank = url.searchParams.get("proxy-list") || PRX_BANK_URL;
+        let proxyList = (await getPrxList(prxBank)).filter((proxy) => {
+          if (countrySelect.length > 0) {
+            return countrySelect.includes(proxy.country);
+          }
+          return true;
+        });
+        
+        return getAllConfig(request, hostname, proxyList, page);
       } else if (url.pathname.startsWith("/check")) {
         const target = url.searchParams.get("target").split(":");
-        const result = await checkPrxHealth(target[0], target[1] || "443");
+        const result = await checkProxyHealth(target[0], target[1] || "443");
 
         return new Response(JSON.stringify(result), {
           status: 200,
@@ -193,17 +414,15 @@ export default {
           const filterFormat = url.searchParams.get("format") || "raw";
           const fillerDomain = url.searchParams.get("domain") || APP_DOMAIN;
 
-          const prxBankUrl = url.searchParams.get("prx-list") || env.PRX_BANK_URL;
+          const prxBankUrl = url.searchParams.get("prx-list") || PRX_BANK_URL;
           const prxList = await getPrxList(prxBankUrl)
             .then((prxs) => {
-              // Filter CC
               if (filterCC.length) {
                 return prxs.filter((prx) => filterCC.includes(prx.country));
               }
               return prxs;
             })
             .then((prxs) => {
-              // shuffle result
               shuffleArray(prxs);
               return prxs;
             });
@@ -211,41 +430,45 @@ export default {
           const uuid = crypto.randomUUID();
           const result = [];
           for (const prx of prxList) {
-            const uri = new URL(`${atob(horse)}://${fillerDomain}`);
-            uri.searchParams.set("encryption", "none");
-            uri.searchParams.set("type", "ws");
-            uri.searchParams.set("host", APP_DOMAIN);
-
             for (const port of filterPort) {
               for (const protocol of filterVPN) {
                 if (result.length >= filterLimit) break;
 
-                uri.protocol = protocol;
+                const uri = new URL(`${protocol}://${fillerDomain}`);
                 uri.port = port.toString();
-                if (protocol == "ss") {
+                
+                if (protocol == atob(flash)) { // VLESS
+                  uri.searchParams.set("encryption", "none");
+                  uri.searchParams.set("type", "ws");
+                  uri.searchParams.set("host", APP_DOMAIN);
+                  uri.username = uuid;
+                  uri.searchParams.set("security", port == 443 ? "tls" : "none");
+                  uri.searchParams.set("sni", port == 443 ? APP_DOMAIN : "");
+                  uri.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+                  uri.hash = `${result.length + 1} ${getFlagEmoji(prx.country)} ${prx.org} VLESS/WS/${port == 443 ? "TLS" : "NTLS"} [${serviceName}]`;
+                } else if (protocol == atob(horse)) { // Trojan
+                  uri.searchParams.set("encryption", "none");
+                  uri.searchParams.set("type", "ws");
+                  uri.searchParams.set("host", APP_DOMAIN);
+                  uri.username = uuid;
+                  uri.searchParams.set("security", port == 443 ? "tls" : "none");
+                  uri.searchParams.set("sni", port == 443 ? APP_DOMAIN : "");
+                  uri.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
+                  uri.hash = `${result.length + 1} ${getFlagEmoji(prx.country)} ${prx.org} Trojan/WS/${port == 443 ? "TLS" : "NTLS"} [${serviceName}]`;
+                } else if (protocol == "ss") { // Shadowsocks
                   uri.username = btoa(`none:${uuid}`);
                   uri.searchParams.set(
                     "plugin",
-                    `${atob(v2)}-plugin${port == 80 ? "" : ";tls"};mux=0;mode=websocket;path=/${prx.prxIP}-${
-                      prx.prxPort
-                    };host=${APP_DOMAIN}`
+                    `${atob(v2)}-plugin${port == 80 ? "" : ";tls"};mux=0;mode=websocket;path=/${prx.prxIP}-${prx.prxPort};host=${APP_DOMAIN}`
                   );
-                } else {
-                  uri.username = uuid;
+                  uri.hash = `${result.length + 1} ${getFlagEmoji(prx.country)} ${prx.org} Shadowsocks/WS/${port == 443 ? "TLS" : "NTLS"} [${serviceName}]`;
                 }
 
-                uri.searchParams.set("security", port == 443 ? "tls" : "none");
-                uri.searchParams.set("sni", port == 80 && protocol == atob(flash) ? "" : APP_DOMAIN);
-                uri.searchParams.set("path", `/${prx.prxIP}-${prx.prxPort}`);
-
-                uri.hash = `${result.length + 1} ${getFlagEmoji(prx.country)} ${prx.org} WS ${
-                  port == 443 ? "TLS" : "NTLS"
-                } [${serviceName}]`;
                 result.push(uri.toString());
               }
             }
           }
-
+          
           let finalResult = "";
           switch (filterFormat) {
             case "raw":
@@ -374,7 +597,6 @@ async function websocketHandler(request) {
             if (protocolHeader.portRemote === 53) {
               isDNS = true;
             } else {
-              // return handleUDPOutbound(protocolHeader.addressRemote, protocolHeader.portRemote, chunk, webSocket, protocolHeader.version, log);
               throw new Error("UDP only support for DNS port 53");
             }
           }
@@ -431,12 +653,11 @@ async function protocolSniffer(buffer) {
   }
 
   const flashDelimiter = new Uint8Array(buffer.slice(1, 17));
-  // Hanya mendukung UUID v4
   if (arrayBufferToHex(flashDelimiter).match(/^[0-9a-f]{8}[0-9a-f]{4}4[0-9a-f]{3}[89ab][0-9a-f]{3}[0-9a-f]{12}$/i)) {
     return atob(flash);
   }
 
-  return "ss"; // default
+  return "ss";
 }
 
 async function handleTCPOutBound(
@@ -649,16 +870,16 @@ function readFlashHeader(buffer) {
   let addressValueIndex = addressIndex + 1;
   let addressValue = "";
   switch (addressType) {
-    case 1: // For IPv4
+    case 1:
       addressLength = 4;
       addressValue = new Uint8Array(buffer.slice(addressValueIndex, addressValueIndex + addressLength)).join(".");
       break;
-    case 2: // For Domain
+    case 2:
       addressLength = new Uint8Array(buffer.slice(addressValueIndex, addressValueIndex + 1))[0];
       addressValueIndex += 1;
       addressValue = new TextDecoder().decode(buffer.slice(addressValueIndex, addressValueIndex + addressLength));
       break;
-    case 3: // For IPv6
+    case 3:
       addressLength = 16;
       const dataView = new DataView(buffer.slice(addressValueIndex, addressValueIndex + addressLength));
       const ipv6 = [];
@@ -715,16 +936,16 @@ function readHorseHeader(buffer) {
   let addressValueIndex = 2;
   let addressValue = "";
   switch (addressType) {
-    case 1: // For IPv4
+    case 1:
       addressLength = 4;
       addressValue = new Uint8Array(dataBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join(".");
       break;
-    case 3: // For Domain
+    case 3:
       addressLength = new Uint8Array(dataBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
       addressValueIndex += 1;
       addressValue = new TextDecoder().decode(dataBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       break;
-    case 4: // For IPv6
+    case 4:
       addressLength = 16;
       const dataView = new DataView(dataBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       const ipv6 = [];
@@ -814,7 +1035,6 @@ async function checkPrxHealth(prxIP, prxPort) {
   return await req.json();
 }
 
-// Helpers
 function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
     return { error: null };
@@ -836,13 +1056,10 @@ function arrayBufferToHex(buffer) {
 function shuffleArray(array) {
   let currentIndex = array.length;
 
-  // While there remain elements to shuffle...
   while (currentIndex != 0) {
-    // Pick a remaining element...
     let randomIndex = Math.floor(Math.random() * currentIndex);
     currentIndex--;
 
-    // And swap it with the current element.
     [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
   }
 }
@@ -859,7 +1076,6 @@ function getFlagEmoji(isoCode) {
   return String.fromCodePoint(...codePoints);
 }
 
-// CloudflareApi Class
 class CloudflareApi {
   constructor() {
     this.bearer = `Bearer ${apiKey}`;
