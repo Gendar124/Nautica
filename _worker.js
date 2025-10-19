@@ -18,7 +18,7 @@ const flash = "dmxlc3M=";
 const judul= "VkxFU1M=";
 
 const PRX_BANK_BASE =
-  "https://raw.githubusercontent.com/maztampandata/cfproxies/main/proxies";
+  "https://raw.githubusercontent.com/FoolVPN-ID/Nautica/refs/heads/main/proxyList.txt";
 
 const DNS_SERVER_ADDRESS = "8.8.8.8";
 const DNS_SERVER_PORT = 53;
