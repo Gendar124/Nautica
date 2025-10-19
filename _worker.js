@@ -1,15 +1,9 @@
 import { connect } from "cloudflare:sockets";
-// import { createHash, createDecipheriv } from "node:crypto";
-// import { Buffer } from "node:buffer";
 
 // Variables
-const rootDomain = "foolvpn.me"; // Ganti dengan domain utama kalian
-const serviceName = "nautica"; // Ganti dengan nama workers kalian
-const apiKey = ""; // Ganti dengan Global API key kalian (https://dash.cloudflare.com/profile/api-tokens)
-const apiEmail = ""; // Ganti dengan email yang kalian gunakan
-const accountID = ""; // Ganti dengan Account ID kalian (https://dash.cloudflare.com -> Klik domain yang kalian gunakan)
-const zoneID = ""; // Ganti dengan Zone ID kalian (https://dash.cloudflare.com -> Klik domain yang kalian gunakan)
-let isApiReady = false;
+let serviceName = "";
+let APP_DOMAIN = "";
+
 let prxIP = "";
 let cachedPrxList = [];
 
@@ -19,19 +13,19 @@ const flash = "dm1lc3M=";
 const v2 = "djJyYXk=";
 const neko = "Y2xhc2g=";
 
-const APP_DOMAIN = `${serviceName}.${rootDomain}`;
 const PORTS = [443, 80];
 const PROTOCOLS = [atob(horse), atob(flash), "ss"];
+const SUB_PAGE_URL = "https://foolvpn.me/nautica";
 const KV_PRX_URL = "https://raw.githubusercontent.com/FoolVPN-ID/Nautica/refs/heads/main/kvProxyList.json";
 const PRX_BANK_URL = "https://raw.githubusercontent.com/FoolVPN-ID/Nautica/refs/heads/main/proxyList.txt";
 const DNS_SERVER_ADDRESS = "8.8.8.8";
 const DNS_SERVER_PORT = 53;
+const RELAY_SERVER_UDP = {
+  host: "udp-relay.hobihaus.space", // Kontribusi atau cek relay publik disini: https://hub.docker.com/r/kelvinzer0/udp-relay
+  port: 7300,
+};
 const PRX_HEALTH_CHECK_API = "https://id1.foolvpn.me/api/v1/check";
 const CONVERTER_URL = "https://api.foolvpn.me/convert";
-const DONATE_LINK = "https://trakteer.id/dickymuliafiqri/tip";
-const BAD_WORDS_LIST =
-  "https://gist.githubusercontent.com/adierebel/a69396d79b787b84d89b45002cb37cd6/raw/6df5f8728b18699496ad588b3953931078ab9cf1/kata-kasar.txt";
-const PRX_PER_PAGE = 24;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 const CORS_HEADER_OPTIONS = {
@@ -109,90 +103,14 @@ async function reverseWeb(request, target, targetPath) {
   return newResponse;
 }
 
-function getAllConfig(request, hostName, prxList, page = 0) {
-  const startIndex = PRX_PER_PAGE * page;
-
-  try {
-    const uuid = crypto.randomUUID();
-
-    // Build URI
-    const uri = new URL(`${atob(horse)}://${hostName}`);
-    uri.searchParams.set("encryption", "none");
-    uri.searchParams.set("type", "ws");
-    uri.searchParams.set("host", hostName);
-
-    // Build HTML
-    const document = new Document(request);
-    document.setTitle("Welcome to <span class='text-blue-500 font-semibold'>Nautica</span>");
-    document.addInfo(`Total: ${prxList.length}`);
-    document.addInfo(`Page: ${page}/${Math.floor(prxList.length / PRX_PER_PAGE)}`);
-
-    for (let i = startIndex; i < startIndex + PRX_PER_PAGE; i++) {
-      const prx = prxList[i];
-      if (!prx) break;
-
-      const { prxIP, prxPort, country, org } = prx;
-
-      uri.searchParams.set("path", `/${prxIP}-${prxPort}`);
-
-      const prxs = [];
-      for (const port of PORTS) {
-        uri.port = port.toString();
-        uri.hash = `${i + 1} ${getFlagEmoji(country)} ${org} WS ${port == 443 ? "TLS" : "NTLS"} [${serviceName}]`;
-        for (const protocol of PROTOCOLS) {
-          // Special exceptions
-          if (protocol === "ss") {
-            uri.username = btoa(`none:${uuid}`);
-            uri.searchParams.set(
-              "plugin",
-              `${atob(v2)}-plugin${
-                port == 80 ? "" : ";tls"
-              };mux=0;mode=websocket;path=/${prxIP}-${prxPort};host=${hostName}`
-            );
-          } else {
-            uri.username = uuid;
-            uri.searchParams.delete("plugin");
-          }
-
-          uri.protocol = protocol;
-          uri.searchParams.set("security", port == 443 ? "tls" : "none");
-          uri.searchParams.set("sni", port == 80 && protocol == atob(flash) ? "" : hostName);
-
-          // Build VPN URI
-          prxs.push(uri.toString());
-        }
-      }
-      document.registerPrxs(
-        {
-          prxIP,
-          prxPort,
-          country,
-          org,
-        },
-        prxs
-      );
-    }
-
-    // Build pagination
-    document.addPageButton("Prev", `/sub/${page > 0 ? page - 1 : 0}`, page > 0 ? false : true);
-    document.addPageButton("Next", `/sub/${page + 1}`, page < Math.floor(prxList.length / 10) ? false : true);
-
-    return document.build();
-  } catch (error) {
-    return `An error occurred while generating the ${atob(flash).toUpperCase()} configurations. ${error}`;
-  }
-}
-
 export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      const upgradeHeader = request.headers.get("Upgrade");
+      APP_DOMAIN = url.hostname;
+      serviceName = APP_DOMAIN.split(".")[0];
 
-      // Gateway check
-      if (apiKey && apiEmail && accountID && zoneID) {
-        isApiReady = true;
-      }
+      const upgradeHeader = request.headers.get("Upgrade");
 
       // Handle prx client
       if (upgradeHeader === "websocket") {
@@ -214,27 +132,7 @@ export default {
       }
 
       if (url.pathname.startsWith("/sub")) {
-        const page = url.pathname.match(/^\/sub\/(\d+)$/);
-        const pageIndex = parseInt(page ? page[1] : "0");
-        const hostname = request.headers.get("Host");
-
-        // Queries
-        const countrySelect = url.searchParams.get("cc")?.split(",");
-        const prxBankUrl = url.searchParams.get("prx-list") || env.PRX_BANK_URL;
-        let prxList = (await getPrxList(prxBankUrl)).filter((prx) => {
-          // Filter prxs by Country
-          if (countrySelect) {
-            return countrySelect.includes(prx.country);
-          }
-
-          return true;
-        });
-
-        const result = getAllConfig(request, hostname, prxList, pageIndex);
-        return new Response(result, {
-          status: 200,
-          headers: { "Content-Type": "text/html;charset=utf-8" },
-        });
+        return Response.redirect(SUB_PAGE_URL + `?host=${APP_DOMAIN}`, 301);
       } else if (url.pathname.startsWith("/check")) {
         const target = url.searchParams.get("target").split(":");
         const result = await checkPrxHealth(target[0], target[1] || "443");
@@ -249,35 +147,7 @@ export default {
       } else if (url.pathname.startsWith("/api/v1")) {
         const apiPath = url.pathname.replace("/api/v1", "");
 
-        if (apiPath.startsWith("/domains")) {
-          if (!isApiReady) {
-            return new Response("Api not ready", {
-              status: 500,
-            });
-          }
-
-          const wildcardApiPath = apiPath.replace("/domains", "");
-          const cloudflareApi = new CloudflareApi();
-
-          if (wildcardApiPath == "/get") {
-            const domains = await cloudflareApi.getDomainList();
-            return new Response(JSON.stringify(domains), {
-              headers: {
-                ...CORS_HEADER_OPTIONS,
-              },
-            });
-          } else if (wildcardApiPath == "/put") {
-            const domain = url.searchParams.get("domain");
-            const register = await cloudflareApi.registerDomain(domain);
-
-            return new Response(register.toString(), {
-              status: register,
-              headers: {
-                ...CORS_HEADER_OPTIONS,
-              },
-            });
-          }
-        } else if (apiPath.startsWith("/sub")) {
+        if (apiPath.startsWith("/sub")) {
           const filterCC = url.searchParams.get("cc")?.split(",") || [];
           const filterPort = url.searchParams.get("port")?.split(",") || PORTS;
           const filterVPN = url.searchParams.get("vpn")?.split(",") || PROTOCOLS;
@@ -433,7 +303,15 @@ async function websocketHandler(request) {
       new WritableStream({
         async write(chunk, controller) {
           if (isDNS) {
-            return handleUDPOutbound(DNS_SERVER_ADDRESS, DNS_SERVER_PORT, chunk, webSocket, null, log);
+            return handleUDPOutbound(
+              DNS_SERVER_ADDRESS,
+              DNS_SERVER_PORT,
+              chunk,
+              webSocket,
+              null,
+              log,
+              RELAY_SERVER_UDP
+            );
           }
           if (remoteSocketWrapper.value) {
             const writer = remoteSocketWrapper.value.writable.getWriter();
@@ -465,20 +343,25 @@ async function websocketHandler(request) {
           if (protocolHeader.isUDP) {
             if (protocolHeader.portRemote === 53) {
               isDNS = true;
-            } else {
-              // return handleUDPOutbound(protocolHeader.addressRemote, protocolHeader.portRemote, chunk, webSocket, protocolHeader.version, log);
-              throw new Error("UDP only support for DNS port 53");
+              return handleUDPOutbound(
+                DNS_SERVER_ADDRESS,
+                DNS_SERVER_PORT,
+                chunk,
+                webSocket,
+                protocolHeader.version,
+                log,
+                RELAY_SERVER_UDP
+              );
             }
-          }
 
-          if (isDNS) {
             return handleUDPOutbound(
-              DNS_SERVER_ADDRESS,
-              DNS_SERVER_PORT,
+              protocolHeader.addressRemote,
+              protocolHeader.portRemote,
               chunk,
               webSocket,
               protocolHeader.version,
-              log
+              log,
+              RELAY_SERVER_UDP
             );
           }
 
@@ -574,18 +457,25 @@ async function handleTCPOutBound(
   remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry, log);
 }
 
-async function handleUDPOutbound(targetAddress, targetPort, udpChunk, webSocket, responseHeader, log) {
+async function handleUDPOutbound(targetAddress, targetPort, dataChunk, webSocket, responseHeader, log, relay) {
   try {
     let protocolHeader = responseHeader;
+
     const tcpSocket = connect({
-      hostname: targetAddress,
-      port: targetPort,
+      hostname: relay.host,
+      port: relay.port,
     });
 
-    log(`Connected to ${targetAddress}:${targetPort}`);
+    const header = `udp:${targetAddress}:${targetPort}`;
+    const headerBuffer = new TextEncoder().encode(header);
+    const separator = new Uint8Array([0x7c]);
+    const relayMessage = new Uint8Array(headerBuffer.length + separator.length + dataChunk.byteLength);
+    relayMessage.set(headerBuffer, 0);
+    relayMessage.set(separator, headerBuffer.length);
+    relayMessage.set(new Uint8Array(dataChunk), headerBuffer.length + separator.length);
 
     const writer = tcpSocket.writable.getWriter();
-    await writer.write(udpChunk);
+    await writer.write(relayMessage);
     writer.releaseLock();
 
     await tcpSocket.readable.pipeTo(
@@ -604,12 +494,12 @@ async function handleUDPOutbound(targetAddress, targetPort, udpChunk, webSocket,
           log(`UDP connection to ${targetAddress} closed`);
         },
         abort(reason) {
-          console.error(`UDP connection to ${targetPort} aborted due to ${reason}`);
+          console.error(`UDP connection aborted due to ${reason}`);
         },
       })
     );
   } catch (e) {
-    console.error(`Error while handling UDP outbound, error ${e.message}`);
+    console.error(`Error while handling UDP outbound: ${e.message}`);
   }
 }
 
@@ -949,81 +839,4 @@ function getFlagEmoji(isoCode) {
     .split("")
     .map((char) => 127397 + char.charCodeAt(0));
   return String.fromCodePoint(...codePoints);
-}
-
-// CloudflareApi Class
-class CloudflareApi {
-  constructor() {
-    this.bearer = `Bearer ${apiKey}`;
-    this.accountID = accountID;
-    this.zoneID = zoneID;
-    this.apiEmail = apiEmail;
-    this.apiKey = apiKey;
-
-    this.headers = {
-      Authorization: this.bearer,
-      "X-Auth-Email": this.apiEmail,
-      "X-Auth-Key": this.apiKey,
-    };
-  }
-
-  async getDomainList() {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${this.accountID}/workers/domains`;
-    const res = await fetch(url, {
-      headers: {
-        ...this.headers,
-      },
-    });
-
-    if (res.status == 200) {
-      const respJson = await res.json();
-
-      return respJson.result.filter((data) => data.service == serviceName).map((data) => data.hostname);
-    }
-
-    return [];
-  }
-
-  async registerDomain(domain) {
-    domain = domain.toLowerCase();
-    const registeredDomains = await this.getDomainList();
-
-    if (!domain.endsWith(rootDomain)) return 400;
-    if (registeredDomains.includes(domain)) return 409;
-
-    try {
-      const domainTest = await fetch(`https://${domain.replaceAll("." + APP_DOMAIN, "")}`);
-      if (domainTest.status == 530) return domainTest.status;
-
-      const badWordsListRes = await fetch(BAD_WORDS_LIST);
-      if (badWordsListRes.status == 200) {
-        const badWordsList = (await badWordsListRes.text()).split("\n");
-        for (const badWord of badWordsList) {
-          if (domain.includes(badWord.toLowerCase())) {
-            return 403;
-          }
-        }
-      } else {
-        return 403;
-      }
-    } catch (e) {
-      return 400;
-    }
-
-    const url = `https://api.cloudflare.com/client/v4/accounts/${this.accountID}/workers/domains`;
-    const res = await fetch(url, {
-      method: "PUT",
-      body: JSON.stringify({
-        environment: "production",
-        hostname: domain,
-        service: serviceName,
-        zone_id: this.zoneID,
-      }),
-      headers: {
-        ...this.headers,
-      },
-    });
-
-    return res.status;
-  }
 }
