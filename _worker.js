@@ -8,7 +8,7 @@ import { connect } from "cloudflare:sockets";
 const serviceName = "@last_masterX";
 
 let prxIP = "";
-const PRX_HEALTH_CHECK_API = "http://api.foolvpn.me/sub?format=raw&cdn=104.18.2.2&sni=google.com&mode=cdn,sni&region=Asia&vpn=vmess,vless,trojan&pass=megalodon";
+const PRX_HEALTH_CHECK_API = "https://id1.foolvpn.me/api/v1/check";
 
 // ENCODE BASE64 VLS BIAR GA 1101//
 const horse = "dHJvamFu";
